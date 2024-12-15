@@ -17,7 +17,7 @@ class SpotifyOAuth2:
 
     def login(self):
         state = secrets.token_urlsafe(16)
-        scope = "user-read-private user-read-email user-library-read playlist-modify-public playlist-modify-private"
+        scope = "user-read-private user-read-email user-library-read playlist-modify-public playlist-modify-private user-read-recently-played"
         query_parameters = {
             "client_id": self.client_id,
             "response_type": "code",
@@ -54,6 +54,10 @@ class SpotifyOAuth2:
         session["access_token"] = json_response["access_token"]
         return redirect("/token")
     
+    def show_token(self):
+        token = session.get("access_token")
+        return "Your access token is " + token
+    
     # with user input for track_name, search for track and return track name
     def search_track(self, track_name):
         token = session.get("access_token")
@@ -78,11 +82,20 @@ class SpotifyOAuth2:
 
     def get_audio_features(self, track_id):
         token = session.get("access_token")
+        if not token:
+            raise ValueError("No access token found. Please login again.")
         url = f"https://api.spotify.com/v1/audio-features/{track_id}"
         headers = {"Authorization": "Bearer " + token}
 
-        response = requests.get(url, headers=headers)
-        return response.json()
+        try:
+
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching audio features: {e}")
+            print(f"Response content: {response.text}")
+            return None
 
     def get_recommendations(self, seed_tracks, seed_artists):
         token = session.get("access_token")
@@ -117,8 +130,13 @@ def login():
 def callback():
     return spotify.callback()
 
+@app.route("/token")
+def show_token():
+    return spotify.show_token()
+
 @app.route("/search", methods=["POST"])
 def search():
+    token = session.get("access_token")
     track_name = request.form.get("track_name")
     track_info = spotify.search_track(track_name)
     track_id = track_info.get("track_id")

@@ -17,7 +17,7 @@ class SpotifyOAuth2:
 
     def login(self):
         state = secrets.token_urlsafe(16)
-        scope = "user-read-private user-read-email user-library-read playlist-modify-public playlist-modify-private user-read-recently-played"
+        scope = "user-read-private user-read-email user-library-read playlist-modify-public playlist-modify-private user-read-recently-played user-read-playback-state"
         query_parameters = {
             "client_id": self.client_id,
             "response_type": "code",
@@ -84,17 +84,20 @@ class SpotifyOAuth2:
         token = session.get("access_token")
         if not token:
             raise ValueError("No access token found. Please login again.")
+        print(f"Access token being used: {token}")
         url = f"https://api.spotify.com/v1/audio-features/{track_id}"
         headers = {"Authorization": "Bearer " + token}
 
         try:
 
             response = requests.get(url, headers=headers)
+            print(f"Response status code: {response.status_code}")
+            print(f"Full response content: {response.text}")
+            
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
             print(f"Error fetching audio features: {e}")
-            print(f"Response content: {response.text}")
             return None
 
     def get_recommendations(self, seed_tracks, seed_artists):

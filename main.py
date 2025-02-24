@@ -4,16 +4,21 @@ import base64
 import urllib.parse
 import os
 import secrets
-
-app = Flask(__name__)
+import re
+from bs4 import BeautifulSoup
+from transformers import pipeline, AutoTokenizer, AutoModel
+from sentence_transformers import SentenceTransformer, util
+import pandas as pd
+import torch
 
 class SpotifyOAuth2:
     def __init__(self):
-        self.app = app
         self.client_secret = os.getenv("CLIENT_SECRET")
         self.client_id = os.getenv("CLIENT_ID")
         self.redirect_uri = os.getenv("REDIRECT_URI")
-        app.secret_key = os.getenv("SECRET_KEY")
+        self.genius_key = os.getenv("GENIUS_KEY")
+        self.secret_key = os.getenv("SECRET_KEY")
+        self.song_df = pd.read_csv("song_lyrics_dataset.csv")
 
     def login(self):
         state = secrets.token_urlsafe(16)
@@ -58,6 +63,15 @@ class SpotifyOAuth2:
         token = session.get("access_token")
         return "Your access token is " + token
     
+    
+    def precompute_song_data(self, song_df):
+        song_data = []
+        for _, row in song_df.iterrows():
+            lyrics = row["lyrics"]
+            sentiment = self.analyze_lyrics_sentiment(lyrics)
+            embedding = embedding_model.encode(lyrics, convert_to_tensor=True)
+            song_data.append({"lyrics": lyrics, "sentiment": sentiment[0]["label"], "embedding": embedding})
+        return song_data
     # with user input for track_name, search for track and return track name
     def search_track(self, track_name):
         token = session.get("access_token")
@@ -79,91 +93,65 @@ class SpotifyOAuth2:
             "track_name": track["name"],
             "artist_name": track["artists"][0]["name"]
         }
-
-    def get_audio_features(self, track_id):
-        token = session.get("access_token")
-        if not token:
-            raise ValueError("No access token found. Please login again.")
-        print(f"Access token being used: {token}")
-        url = f"https://api.spotify.com/v1/audio-features/{track_id}"
-        headers = {"Authorization": "Bearer " + token}
-
-        try:
-
-            response = requests.get(url, headers=headers)
-            print(f"Response status code: {response.status_code}")
-            print(f"Full response content: {response.text}")
-            
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching audio features: {e}")
-            return None
-
-    def get_recommendations(self, seed_tracks, seed_artists):
-        token = session.get("access_token")
-        url = "https://api.spotify.com/v1/recommendations"
-        parameters = {
-            "seed_tracks": ",".join(seed_tracks),
-            "seed_artists": ",".join(seed_artists),
-            "limit": 10
-        }
-        headers = {"Authorization": "Bearer " + token}
-
-        response = requests.get(url, params=parameters, headers=headers)
-        return response.json()["tracks"]
         
+    #Function for getting song lyrics using the genius api
+    def get_song_lyrics(self, artist, song):
+        url = f"https://api.genius.com/search?q={artist} {song}"
+        headers = {"Authorization": "Bearer " + self.genius_key}
+        response = requests.get(url, headers=headers)
+        
+        data = response.json()
+        if not data["response"]["hits"]:
+            print("error, no data found")
+            
+        song_url = data["response"]["hits"][0]["result"]["url"]
+        page = requests.get(song_url)
+        soup = BeautifulSoup(page.text, "html.parser")
+        lyrics_div = soup.find("div", class_=re.compile("Lyrics_Container.*"))
+        lyrics = lyrics_div.get_text(separator="\n") if lyrics_div else "Lyrics not found."
+        return lyrics
+    
+    def analyze_lyrics_sentiment(self, lyrics):
+        return sentiment_model(lyrics[:512])
+
+    def find_similar_songs(self, lyrics, song_data):
+        input_sentiment = spotify.analyze_lyrics_sentiment(lyrics)[0]["label"]
+        filtered_songs = [s for s in song_data if s["sentiment"] == input_sentiment]
+        
+        if not filtered_songs:
+            print("No similar songs found")
+            
+        song_embeddings = torch.stack([s["embedding"] for s in filtered_songs])
+        input_embedding = embedding_model.encode(lyrics, convert_to_tensor=True)
+        similarities = util.pytorch_cos_sim(input_embedding, song_embeddings)
+        
+        best_match = song_data[similarities.argmax().item()]["lyrics"]
+        return best_match
+
 spotify = SpotifyOAuth2()
+song_data = spotify.precompute_song_data(song_df)
+sentiment_model = pipeline("sentiment-analysis")
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-@app.route('/')
-def home():
-    return '''
-        <form action="/search" method="post">
-            <label for="track_name">Enter Song Name:</label>
-            <input type="text" id="track_name" name="track_name" required>
-            <button type="submit">Search</button>
-        </form>
-    '''
-
-@app.route("/login")
-def login():
-    return spotify.login()
-
-@app.route("/callback")
-def callback():
-    return spotify.callback()
-
-@app.route("/token")
-def show_token():
-    return spotify.show_token()
-
-@app.route("/search", methods=["POST"])
-def search():
-    token = session.get("access_token")
-    track_name = request.form.get("track_name")
-    track_info = spotify.search_track(track_name)
-    track_id = track_info.get("track_id")
-    print(f"Track ID extracted: {track_id}")
-    print(track_info)
-    audio_features = spotify.get_audio_features(track_id)
-    return jsonify({
-        "track_info": track_info,
-        "audio_features": audio_features
-    })
-
-@app.route("/audio_features")
-def audio_features():
-    track_id  = request.args.get("track_id")
-    print("Track ID:", track_id)
-    features = spotify.get_audio_features(track_id)
-    return jsonify(features)
-
-@app.route("/recommendations")
-def recommendations():
-    seed_tracks = request.args.get("seed_tracks").split(",")
-    seed_artists = request.args.get("seed_artists").split(",")
-    recommendations = spotify.get_recommendations(seed_tracks, seed_artists)
-    return jsonify(recommendations)
 
 if __name__ == "__main__":
-    app.run(port=8888, debug=True)
+    song_name = input("Enter a song name: ")
+    song_data = spotify.search_track(song_name)
+    
+    if not song_data:
+        print("Error: song not found")
+        
+    else:
+        print(f"Found: {song_data["name"]} by {song_data["artist"]}")
+        lyrics = spotify.get_song_lyrics(song_data["artist"], song_data["name"])
+        if lyrics:
+            print("\nLyrics:")
+            print(lyrics[:500] + "...")
+            sentiment = spotify.analyze_lyrics_sentiment(lyrics)
+            print("\nSentiment analysis:", sentiment)
+            
+            similar_song = spotify.find_similar_songs(lyrics, song_data)
+            print(f"\n Similar Song: {similar_song}")
+        else:
+            print("Lyrics not found")
+            

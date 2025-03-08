@@ -1,5 +1,5 @@
 """
-Spotify Authentication Service, returning Spotify Token in order to query Spotify API for song
+This is just the Spotify Authentication Process, handles callback and returns token upon demand.(might have to change tokentype later)
     """
 
 import os

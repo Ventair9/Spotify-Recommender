@@ -11,11 +11,14 @@ from sentence_transformers import SentenceTransformer, util
 import pandas as pd
 import torch
 from SpotifyOAuth2 import SpotifyOAuth2
+import os
 
 class Main():
     def __init__(self):
         #reading in spotify song dataset(they removed API access for all this, grr)
-        self.song_df = pd.read_csv("SpotifyDataset.csv")
+        path = os.path.abspath(os.path.realpath(__file__))
+        print(path)
+        self.song_df = pd.read_csv(path)
         
     def precompute_song_data(self, song_df):
         #Precomputing for performance reasons, its a very large dataset lol.)
@@ -91,7 +94,7 @@ class Main():
 #Initializing 
 spotify = SpotifyOAuth2()
 mainn = Main()
-song_data = mainn.precompute_song_data()
+song_data = mainn.precompute_song_data(mainn.song_df)
 sentiment_model = pipeline("sentiment-analysis")
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
@@ -116,3 +119,12 @@ if __name__ == "__main__":
             print(f"\n Similar Song: {similar_song}")
         else:
             print("Lyrics not found")
+            
+            
+        """
+        spotify authentication -> use token to do what? uhm
+        
+        
+        
+        
+        """

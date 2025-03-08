@@ -90,7 +90,8 @@ class Main():
 
 #Initializing 
 spotify = SpotifyOAuth2()
-song_data = spotify.precompute_song_data(Main.song_df)
+mainn = Main()
+song_data = mainn.precompute_song_data()
 sentiment_model = pipeline("sentiment-analysis")
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
@@ -103,8 +104,8 @@ if __name__ == "__main__":
         print("Error: song not found")
        
     else:
-        print(f"Found: {song_data["name"]} by {song_data["artist"]}")
-        lyrics = spotify.get_song_lyrics(song_data["artist"], song_data["name"])
+        print(f"Found: {song_data["track_name"]} by {song_data["artist"]}")
+        lyrics = spotify.get_song_lyrics(song_data["artist"], song_data["track_name"])
         if lyrics:
             print("\nLyrics:")
             print(lyrics[:500] + "...")

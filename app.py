@@ -88,6 +88,33 @@ class MusicRecommender():
         """        
         song_url = data["response"]["hits"][0]["result"]["url"]
         
+        #Now onto the scraping
+        webpage = requests.get(song_url)
+        soup = BeautifulSoup(webpage.text, "html.parser")
+        lyrics_div = soup.find("div", attrs={"data-lyrics-container": "true"})
+        # this just looks for the data-lyrics-container
+        if not lyrics_div:
+            return "Error, no lyrics found."
+        
+        lyrics_spans = lyrics_div.find_all("span", class_="ReferentFragment-desktop-sc-380d78dd-1")
+        lyrics_text = []
+        for span in lyrics_spans:
+            #now we're getting rid of all non lyrics text that start with [ or end with ], things that arent actually lyrics."
+            if not span.text.startswith("[") or not span.text.endswith("]"):
+                lyrics_text.append(span.text)
+                
+        clean_lyrics = "\n".join(lyrics_text) #lyrics formatting
+        
+        return clean_lyrics
+    
+        """
+        This should return the clean lyrics without any weird tags, now i need to pass these lyrics into the HuggingFace's sentiment model.
+        """
+        
+    def analyze_lyrics(self, clean_lyrics):
+        return sentiment_model(clean_lyrics[:512])
+#uhm
+sentiment_model = pipeline("sentiment-analysis")
         
                     
 MusicRecommender()
